@@ -1,4 +1,4 @@
-# Superb Input Precision
+# Better Superb Input Precision
 
 ## What does it do?
 
