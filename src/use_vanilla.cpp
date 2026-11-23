@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "SubtickInputs.hpp"
 
 static bool s_firstFrame = true;
@@ -10,13 +12,21 @@ namespace subtickinputs {
 	bool useVanilla() {
 		// clang-format off
 		auto* playLayer = PlayLayer::get();
-		return !playLayer
-		|| !config::modEnabled
-		|| s_firstFrame
-		|| playLayer->m_playerDied
-		|| playLayer->m_isPlatformer
-		|| playLayer->m_useReplay;
+		bool vanilla = !playLayer
+			|| !config::modEnabled
+			|| s_firstFrame
+			|| playLayer->m_playerDied
+			|| playLayer->m_isPlatformer
+			|| playLayer->m_useReplay;
 		// clang-format on
+
+		if (vanilla) {
+			// A split tick never reaches SIPlayerObject::update in these states.
+			// Do not let inputs queued for that tick leak into a later tick.
+			s_pendingSplitInputs.clear();
+		}
+
+		return vanilla;
 	}
 } // namespace subtickinputs
 

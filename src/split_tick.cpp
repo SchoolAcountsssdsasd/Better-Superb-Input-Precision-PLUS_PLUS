@@ -55,14 +55,22 @@ void SIPlayerObject::update(float dt) {
 	}
 
 	std::vector<SplitPlayer> splitPlayers;
-	splitPlayers.push_back({this, getPosition(), m_isOnGround});
-
+	PlayerObject* player1 = playLayer->m_player1;
 	PlayerObject* player2 = playLayer->m_player2;
 	bool isDual = playLayer->m_gameState.m_isDualMode;
-	bool splitOtherPlayer = player2 && isPlayer1() && isDual;
-	if (splitOtherPlayer) {
-		splitPlayers.push_back({player2, player2->getPosition(), player2->m_isOnGround});
-		GET_PLAYER_FIELD(player2, m_skipNextUpdate) = true;
+
+	// Coordinate dual-player splitting from whichever player update runs first.
+	// The other player is moved through splitTick and skipped on its normal update.
+	if (isDual) {
+		splitPlayers.push_back({this, getPosition(), m_isOnGround});
+
+		PlayerObject* other = isPlayer1() ? player2 : (isPlayer2() ? player1 : nullptr);
+		if (other) {
+			splitPlayers.push_back({other, other->getPosition(), other->m_isOnGround});
+			GET_PLAYER_FIELD(other, m_skipNextUpdate) = true;
+		}
+	} else {
+		splitPlayers.push_back({this, getPosition(), m_isOnGround});
 	}
 
 	splitTick(playLayer, splitPlayers, dt); // start the tick split
@@ -79,6 +87,10 @@ static void splitTick(PlayLayer* playLayer, std::vector<SplitPlayer>& splitPlaye
 	s_isSplitting = true;
 
 	for (const auto& pending : s_pendingSplitInputs) {
+		if (!std::isfinite(pending.m_ratio) || pending.m_ratio <= lastRatio || pending.m_ratio > 1.0) {
+			continue;
+		}
+
 		const auto& input = pending.m_command;
 		double segment = std::clamp(pending.m_ratio - lastRatio, EPSILON, 1.0);
 		float segmentDt = static_cast<float>(segment * dt);
@@ -96,7 +108,7 @@ static void splitTick(PlayLayer* playLayer, std::vector<SplitPlayer>& splitPlaye
 				player->m_isOnGround = splitPlayer.m_startedOnGround;
 			}
 
-			float collisionDt = (player->m_isOnSlope && !player->m_isDart) ? dt : 0.0f; // also copied from cbf
+			float collisionDt = (player->m_isOnSlope && !player->m_isDart) ? dt : 0.0f;
 			playLayer->checkCollisions(player, collisionDt, true);
 			player->updateRotation(segmentDt);
 			player->resetCollisionLog(false);
@@ -118,7 +130,6 @@ static void splitTick(PlayLayer* playLayer, std::vector<SplitPlayer>& splitPlaye
 	for (auto& splitPlayer : splitPlayers) {
 		PlayerObject* player = splitPlayer.m_player;
 
-		// split ticks don't apply displacement adjustments, and they're only meant for the current tick
 		GET_PLAYER_FIELD(player, m_yDispAdjustment) = 0.0;
 
 		if (player->isPlayer2() && !playLayer->m_gameState.m_isDualMode) {
@@ -131,11 +142,7 @@ static void splitTick(PlayLayer* playLayer, std::vector<SplitPlayer>& splitPlaye
 
 		GET_PLAYER_FIELD(player, m_remainingRotationDelta) = remainingDelta;
 		GET_PLAYER_FIELD(player, m_tickStartPosition) = splitPlayer.m_tickStartPosition;
-
-		// each update() call overwrote m_diagonalYStep with only its own segment's y movement
-		// but gd expects it to be the whole tick's y movement
 		player->m_diagonalYStep = splitPlayer.m_totalYStep;
-
 		GET_PLAYER_FIELD(player, m_didSplit) = true;
 	}
 
@@ -156,10 +163,6 @@ void SIPlayerObject::updateRotation(float dt) {
 	}
 
 	didSplit = false;
-
 	PlayerObject::updateRotation(GET_PLAYER_FIELD(this, m_remainingRotationDelta));
-
-	// gd reads (position - m_lastPosition) next tick as how far the player moved, so it has to cover the whole tick
-	// it's restored here and not at the end of the split since checkCollisions uses the last segment's value first
 	m_lastPosition = GET_PLAYER_FIELD(this, m_tickStartPosition);
 }
